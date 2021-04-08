@@ -1,0 +1,16 @@
+{
+    "name": "drupal/jw_preload",
+    "description": "A Drupal 7 module for preloading JW video metadata on the server-side to reduce loading time on the client-side.",
+    "type": "drupal-module",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Donovan Mueller",
+            "email": "th@donut.codes"
+        }
+    ],
+    "minimum-stability": "dev",
+    "require": {
+        "lstrojny/functional-php": "^1.11"
+    }
+}

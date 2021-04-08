@@ -1,0 +1,6 @@
+name = JW Preload
+description = Preloads JW video metadata on the server-side to reduce loading time on the client-side.
+core = 7.x
+package = JW Player
+project = "jw_preload"
+version = 7.x-1.00
