@@ -1,0 +1,87 @@
+<?php
+declare(strict_types=1);
+
+
+/**
+ * Implements hook_schema().
+ */
+function jw_preload_schema () : array
+{
+  $media_relations =
+    ['description' => 'Relationships between JW media and Drupal content.'];
+
+  $media_relations['fields'] =
+    [ 'media_id' =>
+      [ 'description' => 'The ID of the media at JW.'
+      , 'type' => 'varchar'
+      , 'length' => 32
+      , 'not null' => true ]
+
+    , 'path' =>
+      [ 'description' =>
+        'The internal, non-aliased path associated with the content.'
+      , 'type' => 'varchar'
+      , 'length' => 255
+      , 'not null' => true ]
+
+    , 'entity_type' =>
+      [ 'description' =>
+        'The entity type of the content associated with this path.'
+      , 'type' => 'varchar'
+      , 'length' => 128
+      , 'not null' => false ]
+
+    , 'entity_id' =>
+      [ 'description' =>
+        'The entity ID of the content associated with this path.'
+      , 'type' => 'int'
+      , 'unsigned' => true
+      , 'not null' => false
+      , 'default' => 0 ]
+
+    , 'created' =>
+      [ 'description' => 'The Unix timestamp when the row was created.'
+      , 'type' => 'int'
+      , 'unsigned' => true
+      , 'not null' => true
+      , 'default' => 0 ]];
+
+  $media_relations['primary key'] = ['media_id', 'path'];
+
+
+  $metadata = ['description' => 'Preloaded media metadata.'];
+
+  $metadata['fields'] =
+    [ 'media_id' =>
+      [ 'description' => 'The ID of the media at JW.'
+      , 'type' => 'varchar'
+      , 'length' => 32
+      , 'not null' => true ]
+
+    , 'value' =>
+      [ 'description' => 'The serialized body of the metadata.'
+      , 'type' => 'text'
+      , 'no null' => true ]
+
+    , 'created' =>
+      [ 'description' => 'The Unix timestamp when the row was created.'
+      , 'type' => 'int'
+      , 'unsigned' => true
+      , 'not null' => true
+      , 'default' => 0 ]
+
+      , 'updated' =>
+        [ 'description' =>
+        'The Unix timestamp when the row was most recently saved.'
+        , 'type' => 'int'
+        , 'unsigned' => true
+        , 'not null' => true
+        , 'default' => 0 ]];
+
+  $metadata['primary key'] = ['media_id'];
+
+
+  return
+    [ 'jw_preload_media_relations' => $media_relations
+    , 'jw_preload_metadata' => $metadata ];
+}
