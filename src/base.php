@@ -9,6 +9,11 @@ use function Functional\map;
 use function Functional\unique;
 
 
+const PRELOAD_QUEUE = 'jw_preload.to_preload';
+const METADATA_TABLE = 'jw_preload_metadata';
+const MEDIA_RELATIONS_TABLE = 'jw_preload_media_relations';
+
+
 /**
  * @param string $path
  *   An internal, non-alias path.
@@ -61,7 +66,7 @@ function add_media_relations
       return [$media_id, $path, $entity_type, $entity_id, time()];
     } );
 
-  db_insert('jw_preload_media_relations')
+  db_insert(MEDIA_RELATIONS_TABLE)
     ->fields($fields, $values)
     ->execute();
 }
@@ -77,7 +82,7 @@ function add_media_relations
  */
 function media_ids_by_path (string $path) : array
 {
-  $media_ids = db_select('jw_preload_media_relations', 'relations')
+  $media_ids = db_select(MEDIA_RELATIONS_TABLE, 'relations')
     ->fields('relations', ['media_id'])
     ->distinct()
     ->condition('relations.path', $path)
@@ -94,16 +99,14 @@ function media_ids_by_path (string $path) : array
  * @param string $path
  *   An internal, non-alias path.
  *
- * @return array<string, MediaRelation>
+ * @return list<MediaRelation>
  */
 function media_relations_by_path (string $path) : array
 {
-  $rows = db_select('jw_preload_media_relations', 'relations')
+  $rows = db_select(MEDIA_RELATIONS_TABLE, 'relations')
     ->fields('relations')
-    ->distinct()
     ->condition('relations.path', $path)
-    ->execute()
-    ->fetchAllAssoc('media_id');
+    ->execute();
 
   return map($rows, function($r){
     return new MediaRelation
@@ -120,17 +123,28 @@ function media_relations_by_path (string $path) : array
  */
 function delete_media_relations_by_path (string $path) : void
 {
-  db_delete('jw_preload_media_relations')
+  db_delete(MEDIA_RELATIONS_TABLE)
     ->condition('path', $path)
     ->execute();
 }
 
 
+/**
+ * Get preloaded metadata for the passed media IDs.
+ *
+ * @param list<string> $media_ids
+ *   A list of JW media IDs.
+ *
+ * @return array<string, Metadata>
+ *   Array is keyed by media ID.
+ */
 function metadata_by_media_ids (array $media_ids) : array
 {
-  # create Metadata class
-  # select from DB
-  # map into Metadata class instances
+  return db_select(METADATA_TABLE, 'data')
+    ->fields('data')
+    ->condition('data.media_id', $media_ids, 'IN')
+    ->execute()
+    ->fetchAllAssoc('media_id', 'Drupal\jw_preload\Metadata');
 }
 
 
@@ -145,7 +159,21 @@ function delete_metadata_by_media_ids (array $media_ids) : void
   if (count($media_ids) === 0)
     return;
 
-  db_delete('jw_preload_metadata')
+  db_delete(METADATA_TABLE)
     ->condition('media_id', $media_ids, 'IN')
     ->execute();
+}
+
+
+/**
+ * Queue a media ID for preload
+ *
+ * @param string $media_id
+ *   The JW media ID.
+ */
+function queue_media_id_for_preload (string $media_id) : void
+{
+  $queue = \DrupalQueue::get(PRELOAD_QUEUE, true);
+  $queue_item = new ToPreloadQueueItem($media_id, time());
+  $queue->createItem($queue_item);
 }

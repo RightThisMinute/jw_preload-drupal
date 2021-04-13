@@ -2,6 +2,10 @@
 declare(strict_types=1);
 
 
+use const Drupal\jw_preload\MEDIA_RELATIONS_TABLE;
+use const Drupal\jw_preload\METADATA_TABLE;
+
+
 /**
  * Implements hook_schema().
  */
@@ -70,18 +74,18 @@ function jw_preload_schema () : array
       , 'not null' => true
       , 'default' => 0 ]
 
-      , 'updated' =>
-        [ 'description' =>
+    , 'updated' =>
+      [ 'description' =>
         'The Unix timestamp when the row was most recently saved.'
-        , 'type' => 'int'
-        , 'unsigned' => true
-        , 'not null' => true
-        , 'default' => 0 ]];
+      , 'type' => 'int'
+      , 'unsigned' => true
+      , 'not null' => true
+      , 'default' => 0 ]];
 
   $metadata['primary key'] = ['media_id'];
 
 
   return
-    [ 'jw_preload_media_relations' => $media_relations
-    , 'jw_preload_metadata' => $metadata ];
+    [ MEDIA_RELATIONS_TABLE => $media_relations
+    , METADATA_TABLE => $metadata ];
 }

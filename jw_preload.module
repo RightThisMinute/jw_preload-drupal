@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 
 use Drupal\jw_preload as _;
+use function Functional\none;
 use function Functional\select;
 use RightThisMinute\Drupal\extra_log as log;
 
@@ -38,7 +39,9 @@ function jw_preload_init () : void
   # Record relations not previously recorded.
   $existing = _\media_relations_by_path($current_path);
   $new_media_ids = select($media_ids, function($media_id)use($existing){
-    return !isset($existing[$media_id]);
+    return none($existing, function($existing)use($media_id){
+      return $existing->media_id === $media_id;
+    });
   });
 
   try {
@@ -56,5 +59,8 @@ function jw_preload_init () : void
         , 'exception' => $exn ]);
   }
 
-//  $preloaded =
+  $preloaded = _\metadata_by_media_ids($media_ids);
+  $missing = array_diff($media_ids, array_keys($preloaded));
+  \Functional\each($missing, function($m){ _\queue_media_id_for_preload($m); });
+}
 }
