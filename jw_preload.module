@@ -3,7 +3,10 @@ declare(strict_types=1);
 
 
 use Drupal\jw_preload as _;
+use function Functional\each as each_;
+use function Functional\map;
 use function Functional\none;
+use function Functional\reindex;
 use function Functional\select;
 use RightThisMinute\Drupal\extra_log as log;
 
@@ -21,6 +24,7 @@ function jw_preload_init () : void
   # Grab media IDs of videos that would show up on this path.
   $media_ids = module_invoke_all
     ( 'jw_preload_register_media_ids'
+    , $current_path
     , $entity
     , $entity_type
     , $entity_id );
@@ -60,7 +64,32 @@ function jw_preload_init () : void
   }
 
   $preloaded = _\metadata_by_media_ids($media_ids);
+
+  # Queue missing items for preload.
   $missing = array_diff($media_ids, array_keys($preloaded));
-  \Functional\each($missing, function($m){ _\queue_media_id_for_preload($m); });
+  each_($missing, function($m){ _\queue_media_id_for_preload($m); });
+
+  if (count($preloaded) === 0)
+    return;
+
+  # Make relevant metadata available via global Drupal JS object.
+  $metadata = reindex($preloaded, function($p){ return $p->media_id; });
+  $metadata = map($metadata, function($m){ return unserialize($m->value); });
+
+  if (count($metadata) === 0)
+    return;
+
+  drupal_add_js(['jw_preload' => ['metadata' => $metadata]], 'setting');
 }
+
+
+/**
+ * Implements hook_cron_queue_info().
+ */
+function jw_preload_cron_queue_info () : array
+{
+  return
+    [ _\PRELOAD_QUEUE =>
+      [ 'worker callback' =>
+        'Drupal\jw_preload\process_to_preload_queue_item' ]];
 }
