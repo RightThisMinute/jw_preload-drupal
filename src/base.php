@@ -81,6 +81,24 @@ function add_media_relations
 
 
 /**
+ * Maps a DB row from MEDIA_RELATIONS_TABLE to an instance of MediaRelation.
+ * @param \stdClass $row
+ *   A DB row from MEDIA_RELATIONS_TABLE
+ *
+ * @return MediaRelation
+ */
+function media_relation_of_db_row (\stdClass $row) : MediaRelation
+{
+  return new MediaRelation
+    ( $row->media_id
+    , $row->path
+    , $row->entity_type
+    , (int)$row->entity_id
+    , (int)$row->created );
+}
+
+
+/**
  * Retrieve all media IDs associated with the passed path.
  *
  * @param string $path
@@ -116,14 +134,7 @@ function media_relations_by_path (string $path) : array
     ->condition('relations.path', $path)
     ->execute();
 
-  return map($rows, function($row){
-    return new MediaRelation
-      ( $row->media_id
-      , $row->path
-      , $row->entity_type
-      , (int)$row->entity_id
-      , (int)$row->created );
-  });
+  return map($rows, function($row){ return media_relation_of_db_row($row); });
 }
 
 
@@ -145,14 +156,29 @@ function media_relations_by_media_ids (array $media_ids) : array
     ->condition('relations.media_id', $media_ids, 'IN')
     ->execute();
 
-  return map($rows, function($row){
-    return new MediaRelation
-      ( $row->media_id
-      , $row->path
-      , $row->entity_type
-      , (int)$row->entity_id
-      , (int)$row->created );
-  });
+  return map($rows, function($row){ return media_relation_of_db_row($row); });
+}
+
+
+/**
+ * Grab all the media relations by the passed entity.
+ *
+ * @param string $type
+ *   The type of the entity.
+ * @param positive-int $id
+ *   The ID of the entity.
+ *
+ * @return array
+ */
+function media_relations_by_entity (string $type, int $id) : array
+{
+  $rows = db_select(MEDIA_RELATIONS_TABLE, 'rel')
+    ->fields('rel')
+    ->condition('entity_type', $type)
+    ->condition('entity_id', $id)
+    ->execute();
+
+  return map($rows, function($row){ return media_relation_of_db_row($row); });
 }
 
 

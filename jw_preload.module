@@ -73,3 +73,34 @@ function jw_preload_entity_update (stdClass $entity, string $type) : void
 
   _\preload_metadata_for_path($uri['path'], $entity);
 }
+
+
+/**
+ * Implements hook_entity_delete().
+ */
+function jw_preload_entity_delete (stdClass $entity, string $type) : void
+{
+  try {
+    [$id] = entity_extract_ids($type, $entity);
+  }
+  catch (\Exception $exn) {
+    log\error
+      ( 'jw_preload'
+      , 'Failed getting IDs of %type entity: %exn'
+      , [ '%type' => $type
+        , '%exn' => $exn->getMessage()
+        , 'entity' => $entity
+        , 'exception' => $exn ]);
+    return;
+  }
+
+  # Delete media relations for this entity
+  $relations = _\media_relations_by_entity($type, (int)$id);
+  each_($relations, function(_\MediaRelation $rel){
+    _\delete_media_relation($rel->media_id, $rel->path);
+  });
+
+  # Clear out metadata for related media if these were the last relations.
+  $media_ids = pluck($relations, 'media_id');
+  _\delete_metadata_by_media_ids_without_relation($media_ids);
+}
