@@ -5,12 +5,13 @@ declare(strict_types=1);
 namespace Drupal\jw_preload;
 
 
+use RightThisMinute\Drupal\extra_log as log;
 use function Functional\each as each_;
 use function Functional\first;
 use function Functional\map;
+use function Functional\pluck;
+use function Functional\select;
 use function Functional\unique;
-use RightThisMinute\Drupal\extra_log as log;
-use const Drupal\rtm_submissions\videos\MAX_CDN_UPLOAD_TIME;
 
 
 const PRELOAD_QUEUE = 'jw_preload.to_preload';
@@ -129,16 +130,19 @@ function media_relations_by_path (string $path) : array
 /**
  * Get all media relations associated with the passed media ID.
  *
- * @param string $media_id
+ * @param list<string> $media_ids
  *   A JW media ID.
  *
  * @return list<MediaRelation>
  */
-function media_relations_by_media_id (string $media_id) : array
+function media_relations_by_media_ids (array $media_ids) : array
 {
+  if (count($media_ids) === 0)
+    return [];
+
   $rows = db_select(MEDIA_RELATIONS_TABLE, 'relations')
     ->fields('relations')
-    ->condition('relations.media_id', $media_id)
+    ->condition('relations.media_id', $media_ids, 'IN')
     ->execute();
 
   return map($rows, function($row){
@@ -161,6 +165,23 @@ function media_relations_by_media_id (string $media_id) : array
 function delete_media_relations_by_path (string $path) : void
 {
   db_delete(MEDIA_RELATIONS_TABLE)
+    ->condition('path', $path)
+    ->execute();
+}
+
+
+/**
+ * Delete a media relation.
+ *
+ * @param string $media_id
+ *   JW media ID.
+ * @param string $path
+ *   Internal, non-alias path.
+ */
+function delete_media_relation (string $media_id, string $path) : void
+{
+  db_delete(MEDIA_RELATIONS_TABLE)
+    ->condition('media_id', $media_id)
     ->condition('path', $path)
     ->execute();
 }
@@ -214,6 +235,21 @@ function delete_metadata_by_media_ids (array $media_ids) : void
 
 
 /**
+ * Delete metadata for media IDs that is no longer related to any content.
+ *
+ * @param list<string> $media_ids
+ *   List of JW media IDs.
+ */
+function delete_metadata_by_media_ids_without_relation (array $media_ids) : void
+{
+  $relations = media_relations_by_media_ids($media_ids);
+  $still_in_use_media_ids = pluck($relations, 'media_id');
+  $out_of_use_media_ids = array_diff($still_in_use_media_ids, $media_ids);
+  delete_metadata_by_media_ids($out_of_use_media_ids);
+}
+
+
+/**
  * Queue a media ID for preload
  *
  * @param string $media_id
@@ -224,6 +260,94 @@ function queue_media_id_for_preload (string $media_id) : void
   $queue = \DrupalQueue::get(PRELOAD_QUEUE, true);
   $queue_item = new ToPreloadQueueItem($media_id, time());
   $queue->createItem($queue_item);
+}
+
+
+/**
+ * Ask other modules for IDs of media that show up on the passed path and mark
+ * those IDs for preloading if they haven't already been preloaded. This will
+ * also clean up media<->path relations that no longer exist as well as no
+ * longer necessary preloaded metadata.
+ *
+ * @param string $path
+ *   An internal, non-alias path.
+ * @param \stdClass|null $entity
+ *   The entity associated with this path. It's important to pass this in
+ *   instances where the entity returned by `node_load` would be out of date,
+ *   like in a `hook_entity_update` implementation.
+ *
+ * @return array<string, Metadata>
+ *   Keyed by media ID, this is an array of metadata that has already been
+ *   preloaded for the given path.
+ */
+function preload_metadata_for_path
+  (string $path, ?\stdClass $entity=null): array
+{
+  [$loaded_entity, $entity_type, $entity_id] =
+    entity_type_and_id_by_path($path);
+
+  $entity = $entity ?? $loaded_entity;
+
+  # Grab media IDs of videos would show up on this path.
+  $media_ids = module_invoke_all
+    ( 'jw_preload_register_media_ids'
+    , $path
+    , $entity
+    , $entity_type
+    , $entity_id );
+  $media_ids = unique($media_ids);
+
+  if (count($media_ids) === 0) {
+    # Clear out existing references to this path since it seems nobody cares
+    # about it anymore.
+    $media_ids = media_ids_by_path($path);
+
+    delete_media_relations_by_path($path);
+    delete_metadata_by_media_ids_without_relation($media_ids);
+
+    return [];
+  }
+
+  $existing = media_relations_by_path($path);
+
+  # Clear out relations that no longer apply to the current path.
+  $out_of_use_relations = select($existing, function($rel)use($media_ids){
+    return !in_array($rel->media_id, $media_ids, true);
+  });
+  each_($out_of_use_relations, function($rel){
+    delete_media_relation($rel->media_id, $rel->path);
+  });
+
+  # Clear out metadata no longer represented by any media relations.
+  $maybe_out_of_use_media_ids =
+    pluck($out_of_use_relations, 'media_id');
+  delete_metadata_by_media_ids_without_relation($maybe_out_of_use_media_ids);
+
+  # Record relations not previously recorded.
+  $existing_media_ids = pluck($existing, 'media_id');
+  $new_media_ids = array_diff($media_ids, $existing_media_ids);
+  try {
+    add_media_relations($new_media_ids, $path, $entity_type, $entity_id);
+  }
+  catch (\Exception $exn) {
+    log\error
+      ( 'jw_preload'
+      , 'Failed saving media relations: %exn'
+      , [ '%exn' => $exn->getMessage()
+        , 'media IDs' => $new_media_ids
+        , 'path' => $path
+        , 'entity type' => $entity_type
+        , 'entity ID' => $entity_id
+        , 'exception' => $exn ]);
+  }
+
+  $preloaded = metadata_by_media_ids($media_ids);
+
+  # Queue missing items for preload.
+  $missing = array_diff($media_ids, array_keys($preloaded));
+  each_($missing, function($m){ queue_media_id_for_preload($m); });
+
+  return $preloaded;
 }
 
 
@@ -305,7 +429,7 @@ function preload_metadata (string $media_id) : void
  */
 function process_to_preload_queue_item (ToPreloadQueueItem $item) : void
 {
-  $relations = media_relations_by_media_id($item->media_id);
+  $relations = media_relations_by_media_ids([$item->media_id]);
 
   if (count($relations) === 0) {
     # Content is no longer related to this media ID. No need to preload metadata

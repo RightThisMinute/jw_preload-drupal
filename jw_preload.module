@@ -6,6 +6,7 @@ use Drupal\jw_preload as _;
 use function Functional\each as each_;
 use function Functional\map;
 use function Functional\none;
+use function Functional\pluck;
 use function Functional\reindex;
 use function Functional\select;
 use RightThisMinute\Drupal\extra_log as log;
@@ -18,59 +19,10 @@ function jw_preload_init () : void
 {
   $current_path = current_path();
 
-  [$entity, $entity_type, $entity_id] =
-    _\entity_type_and_id_by_path($current_path);
-
-  # Grab media IDs of videos that would show up on this path.
-  $media_ids = module_invoke_all
-    ( 'jw_preload_register_media_ids'
-    , $current_path
-    , $entity
-    , $entity_type
-    , $entity_id );
-
-  if (count($media_ids) === 0) {
-    # Clear out existing references to this path since it seems nobody cares
-    # about it anymore.
-    $media_ids = _\media_ids_by_path($current_path);
-
-    _\delete_metadata_by_media_ids($media_ids);
-    _\delete_media_relations_by_path($current_path);
-
+  if (path_is_admin($current_path))
     return;
-  }
 
-  # Record relations not previously recorded.
-  $existing = _\media_relations_by_path($current_path);
-  $new_media_ids = select($media_ids, function($media_id)use($existing){
-    return none($existing, function($existing)use($media_id){
-      return $existing->media_id === $media_id;
-    });
-  });
-
-  try {
-    _\add_media_relations($new_media_ids, $current_path, $entity_type, $entity_id);
-  }
-  catch (Exception $exn) {
-    log\error
-      ( 'jw_preload'
-      , 'Failed saving media relations: %exn'
-      , [ '%exn' => $exn->getMessage()
-        , 'media IDs' => $new_media_ids
-        , 'path' => $current_path
-        , 'entity type' => $entity_type
-        , 'entity ID' => $entity_id
-        , 'exception' => $exn ]);
-  }
-
-  $preloaded = _\metadata_by_media_ids($media_ids);
-
-  # Queue missing items for preload.
-  $missing = array_diff($media_ids, array_keys($preloaded));
-  each_($missing, function($m){ _\queue_media_id_for_preload($m); });
-
-  if (count($preloaded) === 0)
-    return;
+  $preloaded = _\preload_metadata_for_path($current_path);
 
   # Make relevant metadata available via global Drupal JS object.
   $metadata = reindex($preloaded, function($p){ return $p->media_id; });
@@ -92,4 +44,32 @@ function jw_preload_cron_queue_info () : array
     [ _\PRELOAD_QUEUE =>
       [ 'worker callback' =>
         'Drupal\jw_preload\process_to_preload_queue_item' ]];
+}
+
+
+/**
+ * Implements hook_entity_insert().
+ */
+function jw_preload_entity_insert (stdClass $entity, string $type) : void
+{
+  $uri = entity_uri($type, $entity);
+
+  if ($uri === null || !isset($uri['path']))
+    return;
+
+  _\preload_metadata_for_path($uri['path'], $entity);
+}
+
+
+/**
+ * Implements hook_entity_update().
+ */
+function jw_preload_entity_update (stdClass $entity, string $type) : void
+{
+  $uri = entity_uri($type, $entity);
+
+  if ($uri === null || !isset($uri['path']))
+    return;
+
+  _\preload_metadata_for_path($uri['path'], $entity);
 }
