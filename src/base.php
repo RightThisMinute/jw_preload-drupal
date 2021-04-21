@@ -78,15 +78,21 @@ function add_media_relations
 
   $fields = ['media_id', 'path', 'entity_type', 'entity_id', 'created'];
 
-  $values = map
+  $rows = map
     ( $media_ids
     , function($media_id)use($path, $entity_type, $entity_id){
-      return [$media_id, $path, $entity_type, $entity_id, time()];
+      return
+        [ 'media_id' => $media_id
+        , 'path' => $path
+        , 'entity_type' => $entity_type
+        , 'entity_id' => $entity_id
+        , 'created' => time() ];
     } );
 
-  db_insert(MEDIA_RELATIONS_TABLE)
-    ->fields($fields, $values)
-    ->execute();
+  $query = db_insert(MEDIA_RELATIONS_TABLE)
+    ->fields($fields);
+  each_($rows, function($row)use($query){ $query->values($row); });
+  $query->execute();
 }
 
 
