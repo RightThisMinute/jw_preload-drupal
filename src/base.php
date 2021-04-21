@@ -18,6 +18,16 @@ const PRELOAD_QUEUE = 'jw_preload.to_preload';
 const METADATA_TABLE = 'jw_preload_metadata';
 const MEDIA_RELATIONS_TABLE = 'jw_preload_media_relations';
 
+/**
+ * The events JW Webhooks events we care about.
+ */
+const JW_WEBHOOKS_EVENTS =
+  [ 'media_available'
+  , 'conversions_complete'
+  , 'media_updated'
+  , 'media_reuploaded'
+  , 'media_deleted' ];
+
 
 /**
  * @param string $path
@@ -306,13 +316,14 @@ function queue_media_id_for_preload (string $media_id) : void
  *   Keyed by media ID, this is an array of metadata that has already been
  *   preloaded for the given path.
  */
-function preload_metadata_for_path
+function queue_metadata_for_preload_by_path
   (string $path, ?\stdClass $entity=null): array
 {
   [$loaded_entity, $entity_type, $entity_id] =
     entity_type_and_id_by_path($path);
 
-  $entity = $entity ?? $loaded_entity;
+  if (!isset($entity) && !is_array($loaded_entity))
+    $entity = $loaded_entity;
 
   # Grab media IDs of videos would show up on this path.
   $media_ids = module_invoke_all
@@ -383,11 +394,11 @@ function preload_metadata_for_path
  * @param string $media_id
  *   JW media ID
  */
-function preload_metadata (string $media_id) : void
+function preload_metadata_by_media_id (string $media_id) : void
 {
   $encoded = urlencode($media_id);
   $url =
-    "https://cdn.jwplayer.com/v2/media/$encoded?format=json&poster_width=1280";
+    "https://cdn.jwplayer.com/v2/media/$encoded?format=json&poster_width=1920";
   $metadata = file_get_contents($url);
 
   if ($metadata === false) {
@@ -448,6 +459,28 @@ function preload_metadata (string $media_id) : void
 
 
 /**
+ * Preloads metadata for the passed media IDs assuming they have existing
+ * relations to content. Clears page caches for related content.
+ *
+ * @param list<string> $media_ids
+ *   List of JW media IDs.
+ */
+function preload_metadata_by_media_ids_with_relations (array $media_ids) : void
+{
+  $relations = media_relations_by_media_ids($media_ids);
+
+  if (count($relations) === 0)
+    return;
+
+  each_($media_ids, function($m){ preload_metadata_by_media_id($m); });
+
+  # Clear page cache for related content
+  $paths = pluck($relations, 'path');
+  clear_page_cache_by_paths($paths);
+}
+
+
+/**
  * Queue handler for `PRELOAD_QUEUE`. Preloads the metadata for media if it
  * hasn't already been preloaded.
  *
@@ -471,13 +504,41 @@ function process_to_preload_queue_item (ToPreloadQueueItem $item) : void
     # We've already got up-to-date metadata for this media.
     return;
 
-  preload_metadata($item->media_id);
+  preload_metadata_by_media_ids_with_relations([$item->media_id]);
+}
 
-  # Clear page cache for related content
-  if (variable_get('cache', 0)) {
-    each_($relations, function($rel){
-      $url = url($rel->path, ['absolute' => true]);
-      cache_clear_all($url, 'cache_page');
-    });
-  }
+
+/**
+ * Clear the Drupal page cache for each of the passed paths.
+ *
+ * @param list<string> $paths
+ *   List of internal, non-alias paths
+ */
+function clear_page_cache_by_paths (array $paths) : void
+{
+  if (!variable_get('cache', 0))
+    # No need to bother since page cache is disabled.
+    return;
+
+  each_($paths, function($path){
+    $url = url($path, ['absolute' => true]);
+    cache_clear_all($url, 'cache_page');
+  });
+}
+
+
+/**
+ * Clear preloaded metadata for the passed media ID, including related page
+ * caches.
+ *
+ * @param string $media_id
+ *   JW media ID.
+ */
+function clear_preloaded_metadata_by_media_id (string $media_id) : void
+{
+  delete_metadata_by_media_ids([$media_id]);
+
+  $relations = media_relations_by_media_ids([$media_id]);
+  $paths = pluck($relations, 'path');
+  clear_page_cache_by_paths($paths);
 }

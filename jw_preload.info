@@ -4,3 +4,5 @@ core = 7.x
 package = JW Player
 project = "jw_preload"
 version = 7.x-1.00
+
+dependencies[] = jw_webhooks

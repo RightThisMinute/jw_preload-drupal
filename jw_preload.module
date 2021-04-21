@@ -5,11 +5,10 @@ declare(strict_types=1);
 use Drupal\jw_preload as _;
 use function Functional\each as each_;
 use function Functional\map;
-use function Functional\none;
 use function Functional\pluck;
 use function Functional\reindex;
-use function Functional\select;
 use RightThisMinute\Drupal\extra_log as log;
+use RightThisMinute\JWPlatform\Management\v2\request\WebhooksEventBody;
 
 
 /**
@@ -22,7 +21,7 @@ function jw_preload_init () : void
   if (path_is_admin($current_path))
     return;
 
-  $preloaded = _\preload_metadata_for_path($current_path);
+  $preloaded = _\queue_metadata_for_preload_by_path($current_path);
 
   # Make relevant metadata available via global Drupal JS object.
   $metadata = reindex($preloaded, function($p){ return $p->media_id; });
@@ -57,7 +56,7 @@ function jw_preload_entity_insert (stdClass $entity, string $type) : void
   if ($uri === null || !isset($uri['path']))
     return;
 
-  _\preload_metadata_for_path($uri['path'], $entity);
+  _\queue_metadata_for_preload_by_path($uri['path'], $entity);
 }
 
 
@@ -71,7 +70,8 @@ function jw_preload_entity_update (stdClass $entity, string $type) : void
   if ($uri === null || !isset($uri['path']))
     return;
 
-  _\preload_metadata_for_path($uri['path'], $entity);
+  _\queue_metadata_for_preload_by_path($uri['path'], $entity);
+  _\clear_page_cache_by_paths([$uri['path']]);
 }
 
 
@@ -103,4 +103,34 @@ function jw_preload_entity_delete (stdClass $entity, string $type) : void
   # Clear out metadata for related media if these were the last relations.
   $media_ids = pluck($relations, 'media_id');
   _\delete_metadata_by_media_ids_without_relation($media_ids);
+}
+
+
+/**
+ * Implements hook_jw_webhooks_register().
+ */
+function jw_preload_jw_webhooks_register () : array
+{
+  return _\JW_WEBHOOKS_EVENTS;
+}
+
+
+/**
+ * Implements hook_jw_webhooks_receive().
+ */
+function jw_preload_jw_webhooks_receive (WebhooksEventBody $event) : void
+{
+  # Don't handle events we haven't registered for.
+  if (!in_array($event->event, _\JW_WEBHOOKS_EVENTS))
+    return;
+
+  if (in_array($event->event, ['media_reuploaded', 'media_deleted'])) {
+    # No point in trying to preload metadata for any of these events. Either
+    # we need to wait on transcoding or the media just doesn't exist anymore.
+    _\clear_preloaded_metadata_by_media_id($event->media_id);
+    return;
+  }
+
+  # For all other events, we can just (re-)preload the metadata now.
+  _\preload_metadata_by_media_ids_with_relations([$event->media_id]);
 }

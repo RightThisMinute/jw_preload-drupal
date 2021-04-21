@@ -13,12 +13,17 @@
   "repositories": [
     {
       "type": "vcs",
+      "url": "https://github.com/RightThisMinute/jw-platform-php.git"
+    },
+    {
+      "type": "vcs",
       "url": "https://github.com/RightThisMinute/extra_log-drupal.git"
     }
   ],
   "require": {
     "lstrojny/functional-php": "^1.11",
-    "rightthisminute/extra_log-drupal": "7.x-dev"
+    "rightthisminute/extra_log-drupal": "7.x-dev",
+    "rightthisminute/jw-platform-php": "dev-master"
   },
   "autoload": {
     "psr-4": {
