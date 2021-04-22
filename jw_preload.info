@@ -3,6 +3,6 @@ description = Preloads JW video metadata on the server-side to reduce loading ti
 core = 7.x
 package = JW Player
 project = "jw_preload"
-version = 7.x-1.00
+version = 7.x-1.01
 
 dependencies[] = jw_webhooks

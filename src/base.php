@@ -33,7 +33,7 @@ const JW_WEBHOOKS_EVENTS =
  * @param string $path
  *   An internal, non-alias path.
  *
- * @return array{0: stdClass, 1: string, 2:string}|null
+ * @return array{0: stdClass|string|array, 1: string, 2:string}|null
  *   An array of three values, the entity object, the type of the entity, and
  *   the ID of the entity. If any of these could not be determined, returns
  *   null.
@@ -328,7 +328,7 @@ function queue_metadata_for_preload_by_path
   [$loaded_entity, $entity_type, $entity_id] =
     entity_type_and_id_by_path($path);
 
-  if (!isset($entity) && !is_array($loaded_entity))
+  if (!isset($entity) && $loaded_entity instanceof \stdClass)
     $entity = $loaded_entity;
 
   # Grab media IDs of videos would show up on this path.
