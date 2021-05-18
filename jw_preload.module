@@ -31,6 +31,16 @@ function jw_preload_init () : void
     return;
 
   drupal_add_js(['jw_preload' => ['metadata' => $metadata]], 'setting');
+
+  # Set poster images to preload
+  each_($metadata, function($row){
+    each_($row->playlist, function($video){
+      drupal_add_html_head_link
+        ([ 'rel' => 'preload'
+         , 'as' => 'image'
+         , 'href' => $video->image ]);
+    });
+  });
 }
 
 
